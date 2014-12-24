@@ -203,7 +203,7 @@ class NodeInfoUpdater(object):
                 else:
                     group = storage.groups[gid]
 
-                if b_stat['status']['state'] == 0:
+                if b_stat['status']['state'] != 1:
                     logger.info('Disabling node backend %s' % (str(node_backend)))
                     node_backend.disable()
                 else:
