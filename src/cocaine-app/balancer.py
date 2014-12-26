@@ -415,19 +415,26 @@ class Balancer(object):
 
     @h.handler
     def get_couple_info(self, request):
-        group_id = int(request)
+
         logger.info('get_couple_info: request: %s' % (str(request),))
 
-        if not group_id in storage.groups:
-            raise ValueError('Group %d is not found' % group_id)
+        if isinstance(request, (str, unicode)) and ':' in request:
+            couple_str = request
+            if not couple_str in storage.couples:
+                raise ValueError('Couple {0} is not found'.format(couple_str))
+            couple = storage.couples[couple_str]
+        else:
+            group_id = int(request)
 
-        group = storage.groups[group_id]
-        couple = group.couple
+            if not group_id in storage.groups:
+                raise ValueError('Group %d is not found' % group_id)
 
-        if not couple:
-            raise ValueError('Group %s is not coupled' % group)
+            group = storage.groups[group_id]
+            couple = group.couple
 
-        logger.info('Group %s: %s' % (group, repr(group)))
+            if not couple:
+                raise ValueError('Group {0} is not coupled'.format(group))
+
         logger.info('Couple %s: %s' % (couple, repr(couple)))
 
         res = couple.info()

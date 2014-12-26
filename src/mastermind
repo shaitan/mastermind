@@ -544,12 +544,11 @@ def couple_list_closed(by_dc=('', None, 'Group by dc and provide some useful dat
 
 @coupleDispatcher.command(name='info')
 @log_action
-def couple_info(group, host=None, app=None):
-    '''Get couple info'''
+def couple_info(couple_or_group, host=None, app=None):
+    '''Get couple info by couple or any of couple groups'''
     s = service(host, app)
-    group = int(group)
 
-    res = s.enqueue("get_couple_info", msgpack.packb(group)).get()
+    res = s.enqueue("get_couple_info", msgpack.packb(couple_or_group)).get()
     for group in res.get('groups', []):
         for node in group.get('node_backends', []):
             convert_stats(node)
