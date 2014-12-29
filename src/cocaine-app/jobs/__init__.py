@@ -304,8 +304,13 @@ class JobProcessor(object):
             except IndexError:
                 params = {}
 
-            with sync_manager.lock(self.JOBS_LOCK, timeout=self.JOB_MANUAL_TIMEOUT):
-                job = self._create_job(job_type, params)
+            try:
+                force = request[2]
+            except IndexError:
+                force = False
+
+            job = self._create_job_async(job_type, params,
+                force=force, lock_timeout=self.JOB_MANUAL_TIMEOUT).get()
 
         except LockFailedError as e:
             raise
@@ -340,7 +345,31 @@ class JobProcessor(object):
             JobType = CoupleDefragJob
         elif job_type == JobTypes.TYPE_RESTORE_GROUP_JOB:
             JobType = RestoreGroupJob
-        job = JobType.new(self.session, **params)
+        try:
+            job = JobType.new(self.session, **params)
+        except LockAlreadyAcquiredError as e:
+            if not force:
+                raise
+
+            job_ids = e.holders_ids
+
+            # check job types priority
+            STOP_ALLOWED_TYPES = (JobTypes.TYPE_RECOVER_DC_JOB,
+                                  JobTypes.TYPE_COUPLE_DEFRAG_JOB)
+
+            if job_type not in (JobTypes.TYPE_RESTORE_GROUP_JOB, JobTypes.TYPE_MOVE_JOB):
+                raise
+
+            jobs = [self.jobs[job_id] for job_id in job_ids]
+            for job in jobs:
+                if job.type not in STOP_ALLOWED_TYPES:
+                    raise RuntimeError('Cannot stop job {0}, type is {1}'.format(job.id, job.type))
+
+            logger.info('Stopping jobs: {0}'.format(job_ids))
+            self._stop_jobs(jobs)
+
+            logger.info('Retrying job creation')
+            job = JobType.new(self.session, **params)
 
         try:
             job.create_tasks()
@@ -355,6 +384,63 @@ class JobProcessor(object):
             raise
 
         return job
+
+
+    def stop_jobs(self, request):
+        jobs = []
+        try:
+            try:
+                job_uids = request[0]
+            except IndexError:
+                raise ValueError('Job uids is required')
+
+            logger.debug('Lock acquiring')
+            with sync_manager.lock(self.JOBS_LOCK, timeout=self.JOB_MANUAL_TIMEOUT):
+                logger.debug('Lock acquired')
+
+                jobs = [self.jobs[uid] for uid in job_uids if uid in self.jobs]
+                self._stop_jobs(jobs)
+
+        except LockFailedError as e:
+            raise
+        except Exception as e:
+            logger.error('Failed to stop jobs: {0}\n{1}'.format(e,
+                traceback.format_exc()))
+            raise
+
+        return [job.dump() for job in jobs]
+
+
+    def _stop_jobs(self, jobs):
+
+        self._do_update_jobs()
+
+        executing_jobs = []
+
+        for job in jobs:
+            if job.status in Job.ACTIVE_STATUSES:
+                if job.status != Job.STATUS_EXECUTING:
+                    self._cancel_job(job)
+                else:
+                    executing_jobs.append(job)
+
+        for job in executing_jobs:
+            for task in job.tasks:
+                if task.status == Task.STATUS_EXECUTING:
+                    # Move task stop logic to tasks
+                    if isinstance(task, MinionCmdTask):
+                        self.minions.terminate_cmd([task.host, task.minion_cmd_id])
+                    task.status = Task.STATUS_FAILED
+
+                    break
+
+            self._cancel_job(job)
+
+        for job in jobs:
+            self.jobs_index[job.id] = self.__dump_job(job)
+
+        return jobs
+
 
     def get_job_list(self, request):
         try:
@@ -438,8 +524,7 @@ class JobProcessor(object):
                         '"{2}|{3}|{4}"'.format(job.id, job.status,
                             Job.STATUS_PENDING, Job.STATUS_NOT_APPROVED, Job.STATUS_BROKEN))
 
-                job.status = Job.STATUS_CANCELLED
-                job.complete(self.session)
+                self._cancel_job(job)
                 self.jobs_index[job.id] = self.__dump_job(job)
 
                 logger.info('Job {0}: status set to {1}'.format(job.id, job.status))
@@ -450,6 +535,14 @@ class JobProcessor(object):
             raise
 
         return job.dump()
+
+    def _cancel_job(self, job):
+        if job.status not in Job.ACTIVE_STATUSES:
+            raise ValueError('Job {0}: job is not active, its status '
+                'is {1}'.format(job.id, job.status))
+
+        job.status = Job.STATUS_CANCELLED
+        job.complete(self.session)
 
     def approve_job(self, request):
         job_id = None

@@ -33,6 +33,14 @@ class Job(object):
     GROUP_LOCK_PREFIX = 'group/'
     COUPLE_LOCK_PREFIX = 'couple/'
 
+    ACTIVE_STATUSES = (
+        STATUS_NOT_APPROVED,
+        STATUS_NEW,
+        STATUS_EXECUTING,
+        STATUS_PENDING,
+        STATUS_BROKEN,
+    )
+
     COMMON_PARAMS = ('need_approving',)
 
     def __init__(self, need_approving=False):
@@ -200,8 +208,8 @@ class Job(object):
         try:
             sync_manager.persistent_locks_release(self._locks, self.id)
         except InconsistentLockError as e:
-            logger.error('Job {0}: lock for group {1} is already acquired by another '
-                'job {2}'.format(self.id, self.group, e.holder_id))
+            logger.error('Job {0}: some of the locks {1} are already acquired by another '
+                'job {2}'.format(self.id, self._locks, e.holder_id))
             pass
 
     @property

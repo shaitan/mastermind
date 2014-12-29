@@ -32,6 +32,7 @@ class Minions(object):
     MAKE_IOLOOP = 'make_ioloop'
     STATE_URL_TPL = 'http://{host}:{port}/rsync/list/'
     START_URL_TPL = 'http://{host}:{port}/rsync/start/'
+    TERMINATE_URL_TPL = 'http://{host}:{port}/command/terminate/'
 
     def __init__(self, node):
         self.meta_session = node.meta_session.clone()
@@ -234,6 +235,31 @@ class Minions(object):
                 logger.warn('Failed parameter: %s' % (v,))
                 raise ValueError('Only strings are accepted as command parameters')
             data[k] = v
+
+        try:
+            response = HTTPClient().fetch(url, method='POST',
+                                               headers=self.minion_headers,
+                                               body=urllib.urlencode(data),
+                                               request_timeout=5.0,
+                                               use_gzip=True)
+        except HTTPError as e:
+            response = e
+
+        data = self._process_state(host, self._get_response(host, response))
+        return data
+
+    def terminate_cmd(self, request):
+        try:
+            host, uid = request[0:2]
+        except ValueError:
+            raise ValueError('Invalid parameters')
+
+        if not host in storage.hosts:
+            logger.debug('Host was not found: {0}, {1}'.format(host, type(host)))
+            raise ValueError('Host {0} is not present in cluster'.format(host))
+
+        url = self.TERMINATE_URL_TPL.format(host=host, port=self.minion_port)
+        data = {'cmd_uid': uid}
 
         try:
             response = HTTPClient().fetch(url, method='POST',

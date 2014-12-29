@@ -180,6 +180,7 @@ def init_minions():
     register_handle(m.get_command)
     register_handle(m.get_commands)
     register_handle(m.execute_cmd)
+    register_handle(m.terminate_cmd)
     register_handle(m.minion_history_log)
     return m
 
