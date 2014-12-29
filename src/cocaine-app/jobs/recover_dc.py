@@ -36,7 +36,12 @@ class RecoverDcJob(Job):
             couple = storage.couples[kwargs['couple']]
             keys = []
             for g in couple.groups:
-                keys.append(g.get_stat().files)
+                try:
+                    keys.append(g.get_stat().files)
+                except TypeError as e:
+                    raise JobBrokenError('Recover job cannot be created for '
+                        'couple with groups having 0 active backends '
+                        '(group {0})'.format(g.group_id))
             keys.sort(reverse=True)
             job.keys = keys
 

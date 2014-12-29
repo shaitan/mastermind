@@ -4,6 +4,7 @@ import logging
 import time
 import traceback
 
+from cocaine.futures import chain
 import elliptics
 
 from config import config
@@ -116,7 +117,6 @@ class JobProcessor(object):
 
             with sync_manager.lock(self.JOBS_LOCK, blocking=False):
                 logger.debug('Lock acquired')
-                # TODO: check! # fetch jobs - read_latest!!!
                 self._do_update_jobs()
 
                 new_jobs, executing_jobs = [], []
@@ -316,7 +316,19 @@ class JobProcessor(object):
 
         return job.dump()
 
-    def _create_job(self, job_type, params):
+    @chain.source
+    def _create_job_async(self, *args, **kwargs):
+        if kwargs.get('lock_timeout'):
+            yield chain.concurrent(self._create_job_lock)(*args, **kwargs)
+        else:
+            yield chain.concurrent(self._create_job)(*args, **kwargs)
+
+    def _create_job_lock(self, *args, **kwargs):
+        timeout = kwargs.pop('lock_timeout')
+        with sync_manager.lock(self.JOBS_LOCK, timeout=timeout):
+            return self._create_job(*args, **kwargs)
+
+    def _create_job(self, job_type, params, force=False):
         # Forcing manual approval of newly created job
         params.setdefault('need_approving', True)
 

@@ -567,9 +567,16 @@ class Planner(object):
             job_params['uncoupled_group'] = uncoupled_groups[0].group_id
             job_params['merged_groups'] = [g.group_id for g in uncoupled_groups[1:]]
 
-        job = self.job_processor._create_job(
+
+        kwargs = {}
+        if force:
+            kwargs = {'force': True,
+                      'lock_timeout': jobs.JobProcessor.JOB_MANUAL_TIMEOUT}
+
+        job = self.job_processor._create_job_async(
             jobs.JobTypes.TYPE_RESTORE_GROUP_JOB,
-            job_params)
+            job_params,
+            **kwargs).get()
 
         return job.dump()
 
