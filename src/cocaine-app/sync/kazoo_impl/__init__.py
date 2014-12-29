@@ -40,7 +40,8 @@ class ZkSyncManager(object):
         logger.info('Connecting to zookeeper host {0}, '
             'lock_path_prefix: {1}'.format(host, lock_path_prefix))
         try:
-            self.client.start()
+            retry = KazooRetry(max_tries=3)
+            retry(self.client.start, timeout=5)
         except Exception as e:
             logger.error(e)
             raise
